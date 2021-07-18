@@ -62,36 +62,36 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 // ROS and associated nodelet interface and PLUGINLIB declaration header
+#include "ros/ros.h"
 #include <nodelet/nodelet.h>
 #include <pluginlib/class_list_macros.h>
-#include "ros/ros.h"
 
-#include "spinnaker_camera_driver/SpinnakerCamera.h"  // The actual standalone library for the Spinnakers
+#include "spinnaker_camera_driver/SpinnakerCamera.h" // The actual standalone library for the Spinnakers
 #include "spinnaker_camera_driver/diagnostics.h"
 
-#include <camera_info_manager/camera_info_manager.h>  // ROS library that publishes CameraInfo topics
-#include <image_transport/image_transport.h>  // ROS library that allows sending compressed images
-#include <sensor_msgs/CameraInfo.h>  // ROS message header for CameraInfo
+#include <camera_info_manager/camera_info_manager.h> // ROS library that publishes CameraInfo topics
+#include <image_transport/image_transport.h> // ROS library that allows sending compressed images
+#include <sensor_msgs/CameraInfo.h> // ROS message header for CameraInfo
 
-#include <diagnostic_updater/diagnostic_updater.h>  // Headers for publishing diagnostic messages.
+#include <diagnostic_updater/diagnostic_updater.h> // Headers for publishing diagnostic messages.
 #include <diagnostic_updater/publisher.h>
 
-#include <boost/thread.hpp>  // Needed for the nodelet to launch the reading thread.
+#include <boost/thread.hpp> // Needed for the nodelet to launch the reading thread.
 
-#include <dynamic_reconfigure/server.h>  // Needed for the dynamic_reconfigure gui service to run
+#include <dynamic_reconfigure/server.h> // Needed for the dynamic_reconfigure gui service to run
 
 #include <fstream>
 #include <string>
 
 #include <cv_bridge/cv_bridge.h>
-#include <sensor_msgs/image_encodings.h>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <sensor_msgs/image_encodings.h>
 
 #include <image_numbered_msgs/ImageNumbered.h>
 
 namespace spinnaker_camera_driver {
 class SpinnakerCameraNodelet : public nodelet::Nodelet {
- public:
+public:
   SpinnakerCameraNodelet() {}
 
   ~SpinnakerCameraNodelet() {
@@ -110,13 +110,13 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
         spinnaker_.stop();
         NODELET_DEBUG_ONCE("Disconnecting from camera.");
         spinnaker_.disconnect();
-      } catch (const std::runtime_error& e) {
+      } catch (const std::runtime_error &e) {
         NODELET_ERROR("%s", e.what());
       }
     }
   }
 
- private:
+private:
   /*!
    * \brief Function that allows reconfiguration of the camera.
    *
@@ -130,7 +130,7 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
    * driver_base/SensorLevels.h for more information.
    */
 
-  void paramCallback(const spinnaker_camera_driver::SpinnakerConfig& config,
+  void paramCallback(const spinnaker_camera_driver::SpinnakerConfig &config,
                      uint32_t level) {
     config_ = config;
 
@@ -156,29 +156,29 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
       //                of binning settings."
       //                These values are in the post binned frame.
       if ((config.image_format_roi_width + config.image_format_roi_height) >
-          0 &&
+              0 &&
           (config.image_format_roi_width < spinnaker_.getWidthMax() ||
-              config.image_format_roi_height < spinnaker_.getHeightMax())) {
+           config.image_format_roi_height < spinnaker_.getHeightMax())) {
         roi_x_offset_ = config.image_format_x_offset;
         roi_y_offset_ = config.image_format_y_offset;
         roi_width_ = config.image_format_roi_width;
         roi_height_ = config.image_format_roi_height;
-        do_rectify_ = true;  // Set to true if an ROI is used.
+        do_rectify_ = true; // Set to true if an ROI is used.
       } else {
         // Zeros mean the full resolution was captured.
         roi_x_offset_ = 0;
         roi_y_offset_ = 0;
         roi_height_ = 0;
         roi_width_ = 0;
-        do_rectify_ = false;  // Set to false if the whole image is captured.
+        do_rectify_ = false; // Set to false if the whole image is captured.
       }
-    } catch (std::runtime_error& e) {
+    } catch (std::runtime_error &e) {
       NODELET_ERROR("Reconfigure Callback failed with error: %s", e.what());
     }
   }
 
   void diagCb() {
-    if (!diagThread_)  // We need to connect
+    if (!diagThread_) // We need to connect
     {
       // Start the thread to loop through and publish messages
       diagThread_.reset(new boost::thread(boost::bind(
@@ -193,7 +193,7 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
    * using the output.
    */
   void connectCb() {
-    if (!pubThread_)  // We need to connect
+    if (!pubThread_) // We need to connect
     {
       // Start the thread to loop through and publish messages
       pubThread_.reset(new boost::thread(boost::bind(
@@ -265,8 +265,8 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
    */
   void onInit() {
     // Get nodeHandles
-    ros::NodeHandle& nh = getMTNodeHandle();
-    ros::NodeHandle& pnh = getMTPrivateNodeHandle();
+    ros::NodeHandle &nh = getMTNodeHandle();
+    ros::NodeHandle &pnh = getMTPrivateNodeHandle();
 
     // Get a serial number through ros
     int serial = 0;
@@ -293,14 +293,21 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
       serial = readSerialAsHexFromFile(camera_serial_path);
       if (serial == 0) {
         NODELET_WARN_ONCE("Waiting for camera serial path to become available");
-        ros::Duration(1.0).sleep();  // Sleep for 1 second, wait for serial
+        ros::Duration(1.0).sleep(); // Sleep for 1 second, wait for serial
         // device path to become available
       }
     }
 
+    pnh.param<bool>("use_camera_time", use_camera_time_, true);
+    if (use_camera_time_) {
+      NODELET_WARN_ONCE("Using camera timestamps");
+    } else {
+      NODELET_WARN_ONCE("Using ros::Time::now()!");
+    }
+
     NODELET_DEBUG_ONCE("Using camera serial %d", serial);
 
-    spinnaker_.setDesiredCamera((uint32_t) serial);
+    spinnaker_.setDesiredCamera((uint32_t)serial);
 
     // Get GigE camera parameters:
     pnh.param<int>("packet_size", packet_size_, 1400);
@@ -323,7 +330,7 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
       // Start up the dynamic_reconfigure service, note that this needs to stick
       // around after this function ends
       srv_ = std::make_shared<dynamic_reconfigure::Server<
-          spinnaker_camera_driver::SpinnakerConfig> >(pnh);
+          spinnaker_camera_driver::SpinnakerConfig>>(pnh);
       dynamic_reconfigure::Server<
           spinnaker_camera_driver::SpinnakerConfig>::CallbackType f =
           boost::bind(
@@ -347,12 +354,11 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
         it_mono_pub_ = it_->advertiseCamera("image_mono_raw", 5);
       }
 
-    // VERSAVIS stuff!!
-    ros::SubscriberStatusCallback cb3 =
-        boost::bind(&SpinnakerCameraNodelet::connectCb, this);
-    img_numbered_pub_ = nh.advertise<image_numbered_msgs::ImageNumbered>(
-        "image_numbered", 5, cb3, cb3);
-
+      // VERSAVIS stuff!!
+      ros::SubscriberStatusCallback cb3 =
+          boost::bind(&SpinnakerCameraNodelet::connectCb, this);
+      img_numbered_pub_ = nh.advertise<image_numbered_msgs::ImageNumbered>(
+          "image_numbered", 5, cb3, cb3);
 
       // Set up diagnostics
       updater_.setHardwareID("spinnaker_camera " + cinfo_name.str());
@@ -362,17 +368,17 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
       pnh.param<double>("desired_freq", desired_freq, 30.0);
       pnh.param<double>("min_freq", min_freq_, desired_freq);
       pnh.param<double>("max_freq", max_freq_, desired_freq);
-      double freq_tolerance;  // Tolerance before stating error on publish
+      double freq_tolerance; // Tolerance before stating error on publish
       // frequency, fractional percent of desired
       // frequencies.
       pnh.param<double>("freq_tolerance", freq_tolerance, 0.1);
-      int window_size;  // Number of samples to consider in frequency
+      int window_size; // Number of samples to consider in frequency
       pnh.param<int>("window_size", window_size, 100);
-      double min_acceptable;  // The minimum publishing delay (in seconds)
+      double min_acceptable; // The minimum publishing delay (in seconds)
       // before warning.  Negative values mean future
       // dated messages.
       pnh.param<double>("min_acceptable_delay", min_acceptable, 0.0);
-      double max_acceptable;  // The maximum publishing delay (in seconds)
+      double max_acceptable; // The maximum publishing delay (in seconds)
       // before warning.
       pnh.param<double>("max_acceptable_delay", max_acceptable, 0.2);
       ros::SubscriberStatusCallback cb2 =
@@ -434,9 +440,9 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
   }
 
   void diagPoll() {
-    while (!boost::this_thread::interruption_requested())  // Block until we
-      // need to stop this
-      // thread.
+    while (!boost::this_thread::interruption_requested()) // Block until we
+                                                          // need to stop this
+                                                          // thread.
     {
       diag_man->processDiagnostics(&spinnaker_);
     }
@@ -457,166 +463,175 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
     State state = DISCONNECTED;
     State previous_state = NONE;
 
-    while (!boost::this_thread::interruption_requested())  // Block until we
-      // need to stop this
-      // thread.
+    while (!boost::this_thread::interruption_requested()) // Block until we
+                                                          // need to stop this
+                                                          // thread.
     {
       bool state_changed = state != previous_state;
 
       previous_state = state;
 
       switch (state) {
-        case ERROR:
+      case ERROR:
 // Generally there's no need to stop before disconnecting after an
 // error. Indeed, stop will usually fail.
 #if STOP_ON_ERROR
-          // Try stopping the camera
-          {
-            std::lock_guard<std::mutex> scopedLock(connect_mutex_);
-            sub_.shutdown();
+        // Try stopping the camera
+        {
+          std::lock_guard<std::mutex> scopedLock(connect_mutex_);
+          sub_.shutdown();
+        }
+
+        try {
+          NODELET_DEBUG_ONCE("Stopping camera.");
+          spinnaker_.stop();
+          NODELET_DEBUG_ONCE("Stopped camera.");
+
+          state = STOPPED;
+        } catch (std::runtime_error &e) {
+          if (state_changed) {
+            NODELET_ERROR("Failed to stop with error: %s", e.what());
+            ros::Duration(1.0).sleep(); // sleep for one second each time
           }
+          state = ERROR;
+        }
 
-          try {
-            NODELET_DEBUG_ONCE("Stopping camera.");
-            spinnaker_.stop();
-            NODELET_DEBUG_ONCE("Stopped camera.");
-
-            state = STOPPED;
-          } catch (std::runtime_error& e) {
-            if (state_changed) {
-              NODELET_ERROR("Failed to stop with error: %s", e.what());
-              ros::Duration(1.0).sleep();  // sleep for one second each time
-            }
-            state = ERROR;
-          }
-
-          break;
+        break;
 #endif
-        case STOPPED:
-          // Try disconnecting from the camera
-          try {
-            NODELET_DEBUG("Disconnecting from camera.");
-            spinnaker_.disconnect();
-            NODELET_DEBUG("Disconnected from camera.");
+      case STOPPED:
+        // Try disconnecting from the camera
+        try {
+          NODELET_DEBUG("Disconnecting from camera.");
+          spinnaker_.disconnect();
+          NODELET_DEBUG("Disconnected from camera.");
 
-            state = DISCONNECTED;
-          } catch (std::runtime_error& e) {
-            if (state_changed) {
-              NODELET_ERROR("Failed to disconnect with error: %s", e.what());
-              ros::Duration(1.0).sleep();  // sleep for one second each time
-            }
-            state = ERROR;
+          state = DISCONNECTED;
+        } catch (std::runtime_error &e) {
+          if (state_changed) {
+            NODELET_ERROR("Failed to disconnect with error: %s", e.what());
+            ros::Duration(1.0).sleep(); // sleep for one second each time
+          }
+          state = ERROR;
+        }
+
+        break;
+      case DISCONNECTED:
+        // Try connecting to the camera
+        try {
+          NODELET_DEBUG("Connecting to camera.");
+
+          spinnaker_.connect();
+
+          NODELET_DEBUG("Connected to camera.");
+
+          // Set last configuration, forcing the reconfigure level to stop
+          spinnaker_.setNewConfiguration(
+              config_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
+
+          // Set the timeout for grabbing images.
+          try {
+            double timeout;
+            getMTPrivateNodeHandle().param("timeout", timeout, 1.0);
+
+            NODELET_DEBUG_ONCE("Setting timeout to: %f.", timeout);
+            spinnaker_.setTimeout(timeout);
+          } catch (const std::runtime_error &e) {
+            NODELET_ERROR("%s", e.what());
           }
 
-          break;
-        case DISCONNECTED:
-          // Try connecting to the camera
-          try {
-            NODELET_DEBUG("Connecting to camera.");
-
-            spinnaker_.connect();
-
-            NODELET_DEBUG("Connected to camera.");
-
-            // Set last configuration, forcing the reconfigure level to stop
-            spinnaker_.setNewConfiguration(
-                config_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
-
-            // Set the timeout for grabbing images.
-            try {
-              double timeout;
-              getMTPrivateNodeHandle().param("timeout", timeout, 1.0);
-
-              NODELET_DEBUG_ONCE("Setting timeout to: %f.", timeout);
-              spinnaker_.setTimeout(timeout);
-            } catch (const std::runtime_error& e) {
-              NODELET_ERROR("%s", e.what());
-            }
-
-            state = CONNECTED;
-          } catch (const std::runtime_error& e) {
-            if (state_changed) {
-              NODELET_ERROR("Failed to connect with error: %s", e.what());
-              ros::Duration(1.0).sleep();  // sleep for one second each time
-            }
-            state = ERROR;
+          state = CONNECTED;
+        } catch (const std::runtime_error &e) {
+          if (state_changed) {
+            NODELET_ERROR("Failed to connect with error: %s", e.what());
+            ros::Duration(1.0).sleep(); // sleep for one second each time
           }
+          state = ERROR;
+        }
 
-          break;
-        case CONNECTED:
-          // Try starting the camera
-          try {
-            NODELET_DEBUG("Starting camera.");
-            spinnaker_.start();
-            NODELET_DEBUG("Started camera.");
-            NODELET_DEBUG(
-                "Attention: if nothing subscribes to the camera topic, the "
-                "camera_info is not published "
-                "on the correspondent topic.");
-            state = STARTED;
+        break;
+      case CONNECTED:
+        // Try starting the camera
+        try {
+          NODELET_DEBUG("Starting camera.");
+          spinnaker_.start();
+          NODELET_DEBUG("Started camera.");
+          NODELET_DEBUG(
+              "Attention: if nothing subscribes to the camera topic, the "
+              "camera_info is not published "
+              "on the correspondent topic.");
+          state = STARTED;
 
-          } catch (std::runtime_error& e) {
-            if (state_changed) {
-              NODELET_ERROR("Failed to start with error: %s", e.what());
-              ros::Duration(1.0).sleep();  // sleep for one second each time
-            }
-            state = ERROR;
+        } catch (std::runtime_error &e) {
+          if (state_changed) {
+            NODELET_ERROR("Failed to start with error: %s", e.what());
+            ros::Duration(1.0).sleep(); // sleep for one second each time
           }
+          state = ERROR;
+        }
 
-          break;
-        case STARTED:
-          try {
-            sensor_msgs::Image::Ptr image(new sensor_msgs::Image);
-            // Get the image from the camera library
-            NODELET_DEBUG_ONCE(
-                "Starting a new grab from camera with serial {%d}.",
-                spinnaker_.getSerial());
+        break;
+      case STARTED:
+        try {
+          sensor_msgs::Image::Ptr image(new sensor_msgs::Image);
+          // Get the image from the camera library
+          NODELET_DEBUG_ONCE(
+              "Starting a new grab from camera with serial {%d}.",
+              spinnaker_.getSerial());
 
-            spinnaker_.grabImage(image.get(), frame_id_);
+          spinnaker_.grabImage(image.get(), frame_id_);
 
-            // Set other values
-            image->header.frame_id = frame_id_;
+          // Set other values
+          image->header.frame_id = frame_id_;
 
-            // Set the CameraInfo message
-            ci_.reset(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
+          // Set the CameraInfo message
+          ci_.reset(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
+          ci_->header.frame_id = image->header.frame_id;
+          // The height, width, distortion model, and parameters are all
+          // filled in by camera info manager.
+          ci_->binning_x = binning_x_;
+          ci_->binning_y = binning_y_;
+          ci_->roi.x_offset = roi_x_offset_;
+          ci_->roi.y_offset = roi_y_offset_;
+          ci_->roi.height = roi_height_;
+          ci_->roi.width = roi_width_;
+          ci_->roi.do_rectify = do_rectify_;
+
+          if (use_camera_time_) {
+            // use camera time stamp
             ci_->header.stamp = image->header.stamp;
-            ci_->header.frame_id = image->header.frame_id;
-            // The height, width, distortion model, and parameters are all
-            // filled in by camera info manager.
-            ci_->binning_x = binning_x_;
-            ci_->binning_y = binning_y_;
-            ci_->roi.x_offset = roi_x_offset_;
-            ci_->roi.y_offset = roi_y_offset_;
-            ci_->roi.height = roi_height_;
-            ci_->roi.width = roi_width_;
-            ci_->roi.do_rectify = do_rectify_;
+          } else { // use ros time now :(
+            auto time = ros::Time::now();
+            ci_->header.stamp = time;
+            image->header.stamp = time;
+          }
 
-            // Publish the message using standard image transport
-            it_pub_.publish(image, ci_);
-            if(publish_mono_) {
-              publishMonoImage(image, ci_);
-            }
+          // Publish the message using standard image transport
+          it_pub_.publish(image, ci_);
+          if (publish_mono_) {
+            publishMonoImage(image, ci_);
+          }
 
           if (img_numbered_pub_.getNumSubscribers() > 0) {
-              image_numbered_msgs::ImageNumberedPtr image_numbered(
-                  new image_numbered_msgs::ImageNumbered());
-              image_numbered->image = *image;
-              image_numbered->number = spinnaker_.getFrameCounter();
-              // image->image.header.stamp += imu_time_offset_;
-              img_numbered_pub_.publish(image_numbered);
-            }
-
-          } catch (CameraTimeoutException& e) {
-            NODELET_WARN("%s", e.what());
+            image_numbered_msgs::ImageNumberedPtr image_numbered(
+                new image_numbered_msgs::ImageNumbered());
+            image_numbered->image = *image;
+            image_numbered->number = spinnaker_.getFrameCounter();
+            // image->image.header.stamp += imu_time_offset_;
+            img_numbered_pub_.publish(image_numbered);
           }
 
-          catch (std::runtime_error& e) {
-            NODELET_ERROR("%s", e.what());
-            state = ERROR;
-          }
+        } catch (CameraTimeoutException &e) {
+          NODELET_WARN("%s", e.what());
+        }
 
-          break;
-        default:NODELET_ERROR("Unknown camera state %d!", state);
+        catch (std::runtime_error &e) {
+          NODELET_ERROR("%s", e.what());
+          state = ERROR;
+        }
+
+        break;
+      default:
+        NODELET_ERROR("Unknown camera state %d!", state);
       }
 
       // Update diagnostics
@@ -625,8 +640,8 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
     NODELET_DEBUG_ONCE("Leaving thread.");
   }
 
-  void publishMonoImage(const sensor_msgs::ImagePtr& image,
-                        const sensor_msgs::CameraInfoPtr& ci) {
+  void publishMonoImage(const sensor_msgs::ImagePtr &image,
+                        const sensor_msgs::CameraInfoPtr &ci) {
     if (!publish_mono_) {
       return;
     }
@@ -651,46 +666,45 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
 
   /* Class Fields */
   std::shared_ptr<
-      dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> >
-      srv_;  ///< Needed to
+      dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig>>
+      srv_; ///< Needed to
   ///  initialize
   ///  and keep the
   /// dynamic_reconfigure::Server
   /// in scope.
   std::shared_ptr<image_transport::ImageTransport>
-      it_;  ///< Needed to initialize and keep the ImageTransport in
+      it_; ///< Needed to initialize and keep the ImageTransport in
   /// scope.
   std::shared_ptr<camera_info_manager::CameraInfoManager>
-      cinfo_;  ///< Needed to initialize and keep the
+      cinfo_; ///< Needed to initialize and keep the
   /// CameraInfoManager in scope.
-  image_transport::CameraPublisher
-      it_pub_;  ///< CameraInfoManager ROS publisher
+  image_transport::CameraPublisher it_pub_; ///< CameraInfoManager ROS publisher
 
-  ros::Publisher img_numbered_pub_;  ///< Image publisher that also publishes
-                                     ///the associated embedded frame number.
+  ros::Publisher img_numbered_pub_; ///< Image publisher that also publishes
+                                    /// the associated embedded frame number.
 
   image_transport::CameraPublisher it_mono_pub_;
 
   std::shared_ptr<ros::Publisher> diagnostics_pub_;
   /// publisher, has to be  a pointer because of constructor requirements
-  ros::Subscriber sub_;  ///< Subscriber for gain and white balance changes.
+  ros::Subscriber sub_; ///< Subscriber for gain and white balance changes.
 
   std::mutex connect_mutex_;
 
   diagnostic_updater::Updater
-      updater_;  ///< Handles publishing diagnostics messages.
+      updater_; ///< Handles publishing diagnostics messages.
   double min_freq_;
   double max_freq_;
 
-  SpinnakerCamera spinnaker_;      ///< Instance of the SpinnakerCamera library,
+  SpinnakerCamera spinnaker_; ///< Instance of the SpinnakerCamera library,
   /// used to interface with the hardware.
-  sensor_msgs::CameraInfoPtr ci_;  ///< Camera Info message.
+  sensor_msgs::CameraInfoPtr ci_; ///< Camera Info message.
   std::string
-      frame_id_;  ///< Frame id for the camera messages, defaults to 'camera'
+      frame_id_; ///< Frame id for the camera messages, defaults to 'camera'
   std::shared_ptr<boost::thread>
-      pubThread_;  ///< The thread that reads and publishes the images.
+      pubThread_; ///< The thread that reads and publishes the images.
   std::shared_ptr<boost::thread>
-      diagThread_;  ///< The thread that reads and publishes the diagnostics.
+      diagThread_; ///< The thread that reads and publishes the diagnostics.
 
   std::unique_ptr<DiagnosticsManager> diag_man;
 
@@ -699,13 +713,13 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
   uint16_t wb_red_;
 
   // Parameters for cameraInfo
-  size_t binning_x_;     ///< Camera Info pixel binning along the image x axis.
-  size_t binning_y_;     ///< Camera Info pixel binning along the image y axis.
-  size_t roi_x_offset_;  ///< Camera Info ROI x offset
-  size_t roi_y_offset_;  ///< Camera Info ROI y offset
-  size_t roi_height_;    ///< Camera Info ROI height
-  size_t roi_width_;     ///< Camera Info ROI width
-  bool do_rectify_;  ///< Whether or not to rectify as if part of an image. Set
+  size_t binning_x_;    ///< Camera Info pixel binning along the image x axis.
+  size_t binning_y_;    ///< Camera Info pixel binning along the image y axis.
+  size_t roi_x_offset_; ///< Camera Info ROI x offset
+  size_t roi_y_offset_; ///< Camera Info ROI y offset
+  size_t roi_height_;   ///< Camera Info ROI height
+  size_t roi_width_;    ///< Camera Info ROI width
+  bool do_rectify_; ///< Whether or not to rectify as if part of an image. Set
   /// to false if whole image, and true if in
   /// ROI mode.
 
@@ -721,10 +735,13 @@ class SpinnakerCameraNodelet : public nodelet::Nodelet {
   // Mono options
   bool publish_mono_;
 
+  // timestamp from cam or ros time?
+  bool use_camera_time_;
+
   /// Configuration:
   spinnaker_camera_driver::SpinnakerConfig config_;
 };
 
 PLUGINLIB_EXPORT_CLASS(spinnaker_camera_driver::SpinnakerCameraNodelet,
-                       nodelet::Nodelet)  // Needed for Nodelet declaration
-}  // namespace spinnaker_camera_driver
+                       nodelet::Nodelet) // Needed for Nodelet declaration
+} // namespace spinnaker_camera_driver
