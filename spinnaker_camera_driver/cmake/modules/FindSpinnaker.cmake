@@ -7,14 +7,17 @@ find_path(Spinnaker_INCLUDE_DIRS NAMES
   PATHS
   /usr/include/spinnaker/
   /usr/local/include/spinnaker/
+  /opt/spinnaker/include
 )
 
 find_library(Spinnaker_LIBRARIES NAMES Spinnaker
   PATHS
   /usr/lib
   /usr/local/lib
+  /opt/spinnaker/lib
 )
 
 if (Spinnaker_INCLUDE_DIRS AND Spinnaker_LIBRARIES)
   set(Spinnaker_FOUND 1)
+  message("Found spinnaker")
 endif (Spinnaker_INCLUDE_DIRS AND Spinnaker_LIBRARIES)
