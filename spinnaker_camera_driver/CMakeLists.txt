@@ -44,11 +44,20 @@ include_directories(SYSTEM
                     ${OpenCV_INCLUDE_DIRS})
 include_directories(include)
 
+add_library(Camera src/camera.cpp)
+target_link_libraries(Camera ${catkin_LIBRARIES})
+add_dependencies(Camera ${PROJECT_NAME}_gencfg)
+
+add_library(Cm3 src/cm3.cpp)
+target_link_libraries(Cm3 Camera ${catkin_LIBRARIES})
+add_dependencies(Cm3 ${PROJECT_NAME}_gencfg)
+
 add_library(SpinnakerCameraLib src/SpinnakerCamera.cpp)
 
 # Include the Spinnaker Libs
 target_link_libraries(SpinnakerCameraLib
                       Camera
+                      Cm3
                       ${Spinnaker_LIBRARIES}
                       ${catkin_LIBRARIES}
                       ${OpenCV_LIBRARIES})
@@ -66,15 +75,6 @@ target_link_libraries(spinnaker_test_node
 
 
 add_dependencies(SpinnakerCameraLib ${PROJECT_NAME}_gencfg)
-
-
-add_library(Camera src/camera.cpp)
-target_link_libraries(Camera ${catkin_LIBRARIES})
-add_dependencies(Camera ${PROJECT_NAME}_gencfg)
-
-add_library(Cm3 src/cm3.cpp)
-target_link_libraries(Cm3 Camera ${catkin_LIBRARIES})
-add_dependencies(Cm3 ${PROJECT_NAME}_gencfg)
 
 add_library(Diagnostics src/diagnostics.cpp)
 target_link_libraries(Diagnostics Camera SpinnakerCameraLib ${catkin_LIBRARIES})
